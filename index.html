@@ -12,12 +12,10 @@
   header p{color:#888;font-size:13px;margin-top:4px}
   .container{max-width:1300px;margin:0 auto}
   
-  /* Toggle Mode */
   .mode-switch{display:flex;justify-content:center;gap:10px;margin:15px 0}
   .mode-btn{background:#1a1a2e;color:#888;border:1px solid #2d2d44;padding:8px 24px;border-radius:20px;cursor:pointer;font-weight:600;transition:0.2s}
   .mode-btn.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
   
-  /* Options */
   .opts{display:flex;gap:14px;justify-content:center;margin-bottom:14px;flex-wrap:wrap;font-size:13px;color:#b0b0c0;min-height:20px}
   .opts label{display:flex;gap:6px;align-items:center;cursor:pointer;user-select:none}
   .opts input[type=checkbox]{accent-color:#a855f7;cursor:pointer}
@@ -55,7 +53,7 @@
 
   <div class="mode-switch">
     <button class="mode-btn active" id="btn-mode-obf" onclick="setMode('obf')">Obfuscate (Xáo trộn)</button>
-    <button class="mode-btn" id="btn-mode-deobf" onclick="setMode('deobf')">Deobfuscate (Giải mã)</button>
+    <button class="mode-btn" id="btn-mode-deobf" onclick="setMode('deobf')">Deobfuscate (Làm đẹp)</button>
   </div>
 
   <div class="opts" id="obfOptions">
@@ -65,7 +63,7 @@
   </div>
   
   <div class="opts hidden" id="deobfOptions">
-    <span>Chế độ: Làm đẹp code & Dịch ngược chuỗi (String Decoder)</span>
+    <span>Chế độ: Làm đẹp code & Dịch ngược chuỗi (Không thể giải mã VM)</span>
   </div>
 
   <div class="grid">
@@ -92,14 +90,12 @@
 
 <script>
 "use strict";
-let currentMode = 'obf'; // 'obf' hoặc 'deobf'
+let currentMode = 'obf';
 
-/* ===================== TOGGLE MODE ===================== */
 function setMode(mode) {
   currentMode = mode;
   document.getElementById('btn-mode-obf').classList.toggle('active', mode === 'obf');
   document.getElementById('btn-mode-deobf').classList.toggle('active', mode === 'deobf');
-  
   document.getElementById('obfOptions').classList.toggle('hidden', mode !== 'obf');
   document.getElementById('deobfOptions').classList.toggle('hidden', mode !== 'deobf');
   
@@ -107,25 +103,24 @@ function setMode(mode) {
   if (mode === 'obf') {
     btn.textContent = '⚡ Obfuscate';
     btn.style.background = 'linear-gradient(135deg,#a855f7,#3b82f6)';
+    btn.style.color = '#fff';
     document.getElementById('lblInput').textContent = 'Input (Lua gốc)';
     document.getElementById('lblOutput').textContent = 'Output (Đã xáo trộn)';
   } else {
-    btn.textContent = '🔍 Deobfuscate';
-    btn.style.background = '#eab308'; // Màu vàng
+    btn.textContent = '🔍 Làm đẹp Code';
+    btn.style.background = '#eab308';
     btn.style.color = '#000';
-    document.getElementById('lblInput').textContent = 'Input (Code bị xáo trộn)';
-    document.getElementById('lblOutput').textContent = 'Output (Code đã làm sạch)';
+    document.getElementById('lblInput').textContent = 'Input (Code bị xáo trộn/VM)';
+    document.getElementById('lblOutput').textContent = 'Output (Code đã giãn cách)';
   }
   document.getElementById('stats').innerHTML = '';
 }
 
-/* ===================== TOKENIZER ===================== */
 const KEYWORDS = new Set(['and','break','do','else','elseif','end','false','for','function','if','in','local','nil','not','or','repeat','return','then','true','until','while','goto']);
 const BLACKLIST = new Set(['self','_G','_ENV','arg','...']);
 
 function tokenize(src) {
-  const T = [];
-  let i = 0, n = src.length;
+  const T = []; let i = 0, n = src.length;
   while (i < n) {
     const c = src[i];
     if (/\s/.test(c)) { let s = i; while (i < n && /\s/.test(src[i])) i++; T.push({type:'ws', value:src.slice(s,i)}); continue; }
@@ -165,19 +160,12 @@ function tokenize(src) {
   return T;
 }
 
-function matchLongBracket(s, start) {
-  let i = start+1, eq = 0;
-  while (s[i]==='=') { eq++; i++; }
-  return s[i]==='[' ? eq : null;
-}
+function matchLongBracket(s, start) { let i = start+1, eq = 0; while (s[i]==='=') { eq++; i++; } return s[i]==='[' ? eq : null; }
 
-/* ===================== STRING ENCODE/DECODE ===================== */
 function parseLuaString(tok) {
-  const content = tok.slice(1, -1);
-  let out = '', i = 0;
+  const content = tok.slice(1, -1); let out = '', i = 0;
   while (i < content.length) {
-    const c = content[i];
-    if (c !== '\\') { out += c; i++; continue; }
+    const c = content[i]; if (c !== '\\') { out += c; i++; continue; }
     const nx = content[i+1];
     switch (nx) {
       case 'n': out+='\n'; i+=2; break; case 't': out+='\t'; i+=2; break;
@@ -194,28 +182,21 @@ function parseLuaString(tok) {
 
 function encodeStringToken(tok) {
   if (!tok.startsWith('"') && !tok.startsWith("'")) return tok;
-  try {
-    const s = parseLuaString(tok);
-    const bytes = new TextEncoder().encode(s);
-    let out = '"'; for (const b of bytes) out += '\\' + String(b).padStart(3,'0'); return out + '"';
-  } catch(e) { return tok; }
+  try { const s = parseLuaString(tok); const bytes = new TextEncoder().encode(s); let out = '"'; for (const b of bytes) out += '\\' + String(b).padStart(3,'0'); return out + '"'; } catch(e) { return tok; }
 }
 
 function decodeStringToken(tok) {
   if (!tok.startsWith('"') && !tok.startsWith("'")) return tok;
   try {
     const s = parseLuaString(tok);
-    // Chỉ trả về chuỗi bình thường nếu không chứa ký tự điều khiển (control chars)
     if (/[\x00-\x1F\x7F]/.test(s)) return tok; 
     return '"' + s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
   } catch(e) { return tok; }
 }
 
-/* ===================== OBFUSCATOR ===================== */
 function obfuscate(src, opts) {
   opts = Object.assign({ rename: true, strings: true, minify: true }, opts || {});
-  const raw = tokenize(src);
-  const T = [];
+  const raw = tokenize(src); const T = [];
   for (const t of raw) if (t.type !== 'ws' && t.type !== 'comment') T.push(t);
 
   const rootScope = { parent: null, vars: new Map(), depth: 0 };
@@ -235,58 +216,18 @@ function obfuscate(src, opts) {
     if (kw === 'function') {
       pushScope('function'); let j = i + 1;
       while (j < T.length && !(T[j].type==='symbol' && T[j].value==='(')) j++;
-      if (j < T.length) {
-        j++; let depth = 1, expectParam = true;
-        while (j < T.length && depth > 0) {
-          const tk = T[j];
-          if (tk.type === 'symbol') {
-            if (tk.value === '(') depth++; else if (tk.value === ')') { depth--; if (depth===0) break; }
-            else if (tk.value === ',') expectParam = true;
-          } else if (tk.type === 'ident' && expectParam) { declare(cur, tk.value); expectParam = false; }
-          else if (tk.value === '...' && expectParam) expectParam = false;
-          j++;
-        }
-      }
-    } else if (kw === 'do') { pushScope('do'); }
-    else if (kw === 'if') { pushScope('if'); }
-    else if (kw === 'then') { pushScope('then'); }
-    else if (kw === 'elseif') { if (openers.length) { openers.pop(); popScope(); } }
-    else if (kw === 'else') { if (openers.length) { openers.pop(); popScope(); } pushScope('else'); }
-    else if (kw === 'for') {
-      pushScope('for'); let j = i + 1;
-      while (j < T.length) {
-        const tk = T[j]; if (tk.type==='keyword' && (tk.value==='in'||tk.value==='do')) break;
-        if (tk.type==='symbol' && tk.value==='=') break; if (tk.type==='ident') declare(cur, tk.value); j++;
-      }
-    } else if (kw === 'while') { pushScope('while'); }
-    else if (kw === 'repeat') { pushScope('repeat'); }
-    else if (kw === 'end') {
-      while (openers.length && (openers[openers.length-1]==='then'||openers[openers.length-1]==='else')) { openers.pop(); popScope(); }
-      const opener = openers.pop(); if (opener) popScope();
-      if (opener === 'do' && openers.length) { const below = openers[openers.length-1]; if (below==='for'||below==='while') { openers.pop(); popScope(); } }
-    } else if (kw === 'until') { if (openers.length) { openers.pop(); popScope(); } }
-    else if (kw === 'local') {
-      let j = i + 1;
-      if (j < T.length && T[j].type==='keyword' && T[j].value==='function') { j++; if (j<T.length && T[j].type==='ident') declare(cur, T[j].value); }
-      else {
-        while (j < T.length) {
-          const tk = T[j];
-          if (tk.type === 'ident') { declare(cur, tk.value); j++; continue; }
-          if (tk.type === 'symbol' && tk.value === ',') { j++; continue; } break;
-        }
-      }
-    }
+      if (j < T.length) { j++; let depth = 1, expectParam = true; while (j < T.length && depth > 0) { const tk = T[j]; if (tk.type === 'symbol') { if (tk.value === '(') depth++; else if (tk.value === ')') { depth--; if (depth===0) break; } else if (tk.value === ',') expectParam = true; } else if (tk.type === 'ident' && expectParam) { declare(cur, tk.value); expectParam = false; } else if (tk.value === '...' && expectParam) expectParam = false; j++; } }
+    } else if (kw === 'do') { pushScope('do'); } else if (kw === 'if') { pushScope('if'); } else if (kw === 'then') { pushScope('then'); }
+    else if (kw === 'elseif') { if (openers.length) { openers.pop(); popScope(); } } else if (kw === 'else') { if (openers.length) { openers.pop(); popScope(); } pushScope('else'); }
+    else if (kw === 'for') { pushScope('for'); let j = i + 1; while (j < T.length) { const tk = T[j]; if (tk.type==='keyword' && (tk.value==='in'||tk.value==='do')) break; if (tk.type==='symbol' && tk.value==='=') break; if (tk.type==='ident') declare(cur, tk.value); j++; } }
+    else if (kw === 'while') { pushScope('while'); } else if (kw === 'repeat') { pushScope('repeat'); }
+    else if (kw === 'end') { while (openers.length && (openers[openers.length-1]==='then'||openers[openers.length-1]==='else')) { openers.pop(); popScope(); } const opener = openers.pop(); if (opener) popScope(); if (opener === 'do' && openers.length) { const below = openers[openers.length-1]; if (below==='for'||below==='while') { openers.pop(); popScope(); } } }
+    else if (kw === 'until') { if (openers.length) { openers.pop(); popScope(); } }
+    else if (kw === 'local') { let j = i + 1; if (j < T.length && T[j].type==='keyword' && T[j].value==='function') { j++; if (j<T.length && T[j].type==='ident') declare(cur, T[j].value); } else { while (j < T.length) { const tk = T[j]; if (tk.type === 'ident') { declare(cur, tk.value); j++; continue; } if (tk.type === 'symbol' && tk.value === ',') { j++; continue; } break; } } }
   }
 
   let out = ''; let pType = null, pVal = '';
-  function needSpace(pt,pv,ct,cv) {
-    if (!pt) return false; const wordy = new Set(['ident','keyword','number']);
-    if (wordy.has(pt) && wordy.has(ct)) return true;
-    if (pt==='string' && wordy.has(ct)) return true; if (wordy.has(pt) && ct==='string') return true;
-    if (pt==='symbol' && pv==='-' && ct==='symbol' && cv.startsWith('-')) return true;
-    if (pt==='number' && ct==='symbol' && cv==='..') return true; if (pt==='symbol' && pv==='.' && ct==='number') return true;
-    return false;
-  }
+  function needSpace(pt,pv,ct,cv) { if (!pt) return false; const wordy = new Set(['ident','keyword','number']); if (wordy.has(pt) && wordy.has(ct)) return true; if (pt==='string' && wordy.has(ct)) return true; if (wordy.has(pt) && ct==='string') return true; if (pt==='symbol' && pv==='-' && ct==='symbol' && cv.startsWith('-')) return true; if (pt==='number' && ct==='symbol' && cv==='..') return true; if (pt==='symbol' && pv==='.' && ct==='number') return true; return false; }
 
   for (let i = 0; i < T.length; i++) {
     const t = T[i]; let v;
@@ -300,149 +241,76 @@ function obfuscate(src, opts) {
   return out;
 }
 
-/* ===================== DEOBFUSCATOR / BEAUTIFIER ===================== */
 function deobfuscate(src) {
   const raw = tokenize(src);
   
-  // 1. Dịch ngược chuỗi (String Decoder)
-  for (let t of raw) {
-    if (t.type === 'string') {
-      t.value = decodeStringToken(t.value);
-    }
-  }
+  for (let t of raw) { if (t.type === 'string') t.value = decodeStringToken(t.value); }
 
-  // 2. Làm đẹp code (Beautifier)
-  let out = '';
-  let indent = 0;
-  const INDENT_STR = '    '; // 4 spaces
+  let out = ''; let indent = 0; const INDENT_STR = '    ';
   let pType = null, pVal = '';
+  
+  // Các phép toán cần giãn cách
+  const mathOps = new Set(['+', '-', '*', '/', '%', '==', '~=', '<=', '>=', '>', '<', '..']);
 
-  function needSpace(pt,pv,ct,cv) {
-    if (!pt) return false; const wordy = new Set(['ident','keyword','number']);
-    if (wordy.has(pt) && wordy.has(ct)) return true;
-    if (pt==='string' && wordy.has(ct)) return true; if (wordy.has(pt) && ct==='string') return true;
-    if (pt==='number' && ct==='symbol' && cv==='..') return true;
-    if (pt==='symbol' && pv==='.' && ct==='number') return true;
-    return false;
-  }
-
-  function addNewline() {
-    out = out.trimEnd() + '\n' + INDENT_STR.repeat(indent);
-  }
+  function addNewline() { out = out.trimEnd() + '\n' + INDENT_STR.repeat(indent); }
 
   for (let i = 0; i < raw.length; i++) {
     const t = raw[i];
-    
-    // Bỏ qua comment và whitespace thừa
     if (t.type === 'ws') continue;
-    if (t.type === 'comment') {
-      out += t.value + '\n' + INDENT_STR.repeat(indent);
-      pType = null;
-      continue;
-    }
+    if (t.type === 'comment') { out += t.value + '\n' + INDENT_STR.repeat(indent); pType = null; continue; }
 
     const v = t.value;
 
-    // Xử lý giảm thụt lề (End, Else, Elseif, Until)
     if (t.type === 'keyword' && ['end', 'else', 'elseif', 'until'].includes(v)) {
       indent = Math.max(0, indent - 1);
       if (out.trim() !== '' && !out.endsWith('\n')) addNewline();
-      else if (out.endsWith('\n')) out += INDENT_STR.repeat(indent); // fix indent
+      else if (out.endsWith('\n')) out += INDENT_STR.repeat(indent);
     }
 
-    // Thêm khoảng trắng hợp lý
-    if (needSpace(pType, pVal, t.type, v)) out += ' ';
-    
-    out += v;
-
-    // Xử lý tăng thụt lề (Then, Do)
-    if (t.type === 'keyword' && ['then', 'do'].includes(v)) {
-      indent++;
-      addNewline();
-    } 
-    // Xử lý khối Repeat/Until
-    else if (t.type === 'keyword' && v === 'repeat') {
-      indent++;
-      addNewline();
-    }
-    // Xử lý dấu chấm phẩy (nếu có)
-    else if (t.type === 'symbol' && v === ';') {
-      addNewline();
+    // Thêm khoảng trắng cho toán tử
+    if (t.type === 'symbol' && mathOps.has(v)) {
+      if (v === '-' && i + 1 < raw.length && raw[i+1].type === 'number') {
+         // Số âm thì không cách
+         out += '-';
+      } else if (v === '..') {
+         out += ' .. ';
+      } else {
+         out += ' ' + v + ' ';
+      }
+    } else {
+      if (pType && (pType === 'ident' || pType === 'keyword' || pType === 'number') && (t.type === 'ident' || t.type === 'keyword' || t.type === 'number')) out += ' ';
+      out += v;
     }
 
-    pType = t.type;
-    pVal = v;
+    if (t.type === 'keyword' && ['then', 'do', 'repeat'].includes(v)) { indent++; addNewline(); } 
+    else if (t.type === 'symbol' && v === ';') { addNewline(); }
+
+    pType = t.type; pVal = v;
   }
-  
   return out.trim();
 }
 
-/* ===================== UI CONTROL ===================== */
-const $in = document.getElementById('input');
-const $out = document.getElementById('output');
-const $stats = document.getElementById('stats');
-const $inSize = document.getElementById('inSize');
-const $outSize = document.getElementById('outSize');
-const $copy = document.getElementById('copyBtn');
-const $dl = document.getElementById('dlBtn');
+const $in = document.getElementById('input'), $out = document.getElementById('output'), $stats = document.getElementById('stats'), $inSize = document.getElementById('inSize'), $outSize = document.getElementById('outSize'), $copy = document.getElementById('copyBtn'), $dl = document.getElementById('dlBtn');
 
 $in.addEventListener('input', () => { $inSize.textContent = $in.value.length + ' ký tự'; });
 
 function run() {
   const src = $in.value;
   if (!src.trim()) { $stats.innerHTML = '<span class="err">⚠️ Chưa có code</span>'; return; }
-  
   try {
     const t0 = performance.now();
-    let res = '';
-    
-    if (currentMode === 'obf') {
-      const opts = {
-        rename: document.getElementById('optRename').checked,
-        strings: document.getElementById('optStrings').checked,
-        minify: document.getElementById('optMinify').checked
-      };
-      res = obfuscate(src, opts);
-    } else {
-      res = deobfuscate(src);
-    }
-    
+    let res = currentMode === 'obf' ? obfuscate(src, { rename: document.getElementById('optRename').checked, strings: document.getElementById('optStrings').checked, minify: document.getElementById('optMinify').checked }) : deobfuscate(src);
     const t1 = performance.now();
-    $out.value = res;
-    $outSize.textContent = res.length + ' ký tự';
+    $out.value = res; $outSize.textContent = res.length + ' ký tự';
     $copy.disabled = false; $dl.disabled = false;
-    
-    const action = currentMode === 'obf' ? 'Xáo trộn' : 'Giải mã';
+    const action = currentMode === 'obf' ? 'Xáo trộn' : 'Làm đẹp';
     $stats.innerHTML = `<span class="ok">✓</span> ${action} xong trong ${(t1-t0).toFixed(1)}ms · Kích thước: ${src.length} → ${res.length} ký tự`;
-    
-  } catch (e) {
-    $stats.innerHTML = `<span class="err">❌ ${e.message}</span>`;
-  }
+  } catch (e) { $stats.innerHTML = `<span class="err">❌ ${e.message}</span>`; }
 }
 
-function copyOut() {
-  if (!$out.value) return;
-  navigator.clipboard.writeText($out.value).then(() => {
-    const o = $copy.textContent; $copy.textContent = '✅ Đã copy!';
-    setTimeout(() => $copy.textContent = o, 1400);
-  }).catch(() => { $out.select(); document.execCommand('copy'); });
-}
-
-function download() {
-  if (!$out.value) return;
-  const blob = new Blob([$out.value], { type: 'text/plain;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = currentMode === 'obf' ? 'obfuscated.lua' : 'deobfuscated.lua';
-  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-}
-
-function clearAll() {
-  $in.value = ''; $out.value = '';
-  $inSize.textContent = '0 ký tự'; $outSize.textContent = '0 ký tự';
-  $stats.innerHTML = '';
-  $copy.disabled = true; $dl.disabled = true;
-}
+function copyOut() { if (!$out.value) return; navigator.clipboard.writeText($out.value).then(() => { const o = $copy.textContent; $copy.textContent = '✅ Đã copy!'; setTimeout(() => $copy.textContent = o, 1400); }).catch(() => { $out.select(); document.execCommand('copy'); }); }
+function download() { if (!$out.value) return; const blob = new Blob([$out.value], { type: 'text/plain;charset=utf-8' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = currentMode === 'obf' ? 'obfuscated.lua' : 'deobfuscated.lua'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); }
+function clearAll() { $in.value = ''; $out.value = ''; $inSize.textContent = '0 ký tự'; $outSize.textContent = '0 ký tự'; $stats.innerHTML = ''; $copy.disabled = true; $dl.disabled = true; }
 </script>
 </body>
 </html>
